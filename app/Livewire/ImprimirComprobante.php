@@ -26,6 +26,20 @@ class ImprimirComprobante extends Component
         $this->impresoras = ['POS-80C-1', 'POS-80C-2', 'EPSON-TM-U220-Receipt'];
     }
 
+    public function calcular_digitos($factor): int
+    {
+        // Asegurar que sea número y al menos 1
+        $f = max(1, (int) $factor);
+
+        // Ejemplo: factor=1000 -> maxUnits=999
+        $maxUnits = max(0, $f - 1);
+
+        // Contar longitud de los dígitos (mínimo 2)
+        $digits = max(2, strlen((string) abs((int) floor($maxUnits))));
+
+        return $digits;
+    }
+
     public function imprimir($id)
     {
         // Verificar que el ID exista
@@ -119,7 +133,7 @@ class ImprimirComprobante extends Component
                     }
                     $printer->text(strtoupper(str_pad($detalle->codProducto, 5, "0", STR_PAD_LEFT) . " " . substr($detalle->descripcion, 0, 34)));
                     $printer->feed();
-                    $printer->text("CAJX" . str_pad($detalle->ref_producto_cantidad_cajon, 2, "0", STR_PAD_LEFT) . "    " . str_pad(number_format_punto2($detalle->ref_producto_cant_vendida), 6, " ", STR_PAD_LEFT) . " " . str_pad(number_format($detalle->ref_producto_precio_cajon, 2), 10, " ", STR_PAD_LEFT) . " " . str_pad(number_format(($monto_valor + $detalle->totalImpuestos), 2), 12, " ", STR_PAD_LEFT));
+                    $printer->text("CAJX" . str_pad($detalle->ref_producto_cantidad_cajon, 2, "0", STR_PAD_LEFT) . "    " . str_pad(number_format($detalle->ref_producto_cant_vendida, $this->calcular_digitos($detalle->ref_producto_cantidad_cajon),'.',''), 6, " ", STR_PAD_LEFT) . " " . str_pad(number_format($detalle->ref_producto_precio_cajon, 2), 10, " ", STR_PAD_LEFT) . " " . str_pad(number_format(($monto_valor + $detalle->totalImpuestos), 2), 12, " ", STR_PAD_LEFT));
                     $printer->feed();
                 }
                 $printer->text("**SON: " . strtoupper($formatter->toInvoice($comprobante->mtoImpVenta, 2, 'SOLES')));

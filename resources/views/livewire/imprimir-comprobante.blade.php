@@ -3,7 +3,7 @@
     <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-100">
             <tr>
-                <th scope="col" class="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Empresa</th>
+                <!-- <th scope="col" class="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Empresa</th> -->
                 <th scope="col" class="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Tipo Documento</th>
                 <th scope="col" class="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Serie</th>
                 <th scope="col" class="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Correlativo Desde</th>
@@ -16,7 +16,7 @@
             @foreach ($series as $id => $serie)
             <form wire:submit.prevent="imprimir({{ $id }})">
                 <tr>
-                    <td class="px-4 py-2 whitespace-nowrap">{{ $serie['f_sede']['name'] ?? '' }}</td>
+                    <!-- <td class="px-4 py-2 whitespace-nowrap">{{ $serie['f_sede']['name'] ?? '' }}</td> -->
                     <td class="px-4 py-2 whitespace-nowrap">{{ $serie['f_tipo_comprobante']['name'] ?? '' }}</td>
                     <td class="px-4 py-2 whitespace-nowrap">{{ $serie['serie'] }}</td>
                     <td class="px-4 py-2 whitespace-nowrap">
