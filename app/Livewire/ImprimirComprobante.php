@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Models\FComprobanteSunat;
 use App\Models\FSerie;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Http;
 use Livewire\Component;
 use Luecano\NumeroALetras\NumeroALetras;
 use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
@@ -22,7 +23,23 @@ class ImprimirComprobante extends Component
 
     public function mount()
     {
-        $this->series = FSerie::with(['fSede', 'fTipoComprobante'])->whereIn('f_tipo_comprobante_id', [1, 2, 3])->where('f_sede_id', auth_user()->f_sede_id)->get()->keyBy('id')->toArray();
+        $sede_id = auth_user()->f_sede_id;
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . env('API_TOKEN'),
+            'Accept' => 'application/json',
+        ])->get(env('API_URL') . '/api/series', [
+            'sede_id' => $sede_id,
+            'tipos'   => '1,2,3'
+        ]);
+
+        if ($response->successful()) {
+            $this->series = collect($response->json())->keyBy('id')->toArray();
+        } else {
+            $this->series = [];
+            session()->flash('error', 'No se pudo obtener las series desde la API externa');
+        }
+
         $this->impresoras = ['POS-80C-1', 'POS-80C-2', 'EPSON-TM-U220-Receipt'];
     }
 
@@ -67,9 +84,27 @@ class ImprimirComprobante extends Component
             $nombre_impresora_compartida = "POS-80C-1";
             $correlativo_desde = (int)$serie->correlativo_desde;
             $correlativo_hasta = (int)$serie->correlativo_hasta;
-            $comprobantes = FComprobanteSunat::with(['vendedor', 'tipo_doc', 'cliente.padron' => function ($query) {
-                $query->withTrashed();
-            }, 'conductor', 'detalle.producto'])->where('sede_id', $serie->f_sede_id)->where('serie', $serie->serie)->whereBetween('correlativo', [$correlativo_desde, $correlativo_hasta])->get();
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . env('API_TOKEN'),
+                'Accept' => 'application/json',
+            ])->get(env('API_URL') . '/api/comprobantes', [
+                'sede_id' => $serie->f_sede_id,
+                'serie' => $serie->serie,
+                'desde' => $correlativo_desde,
+                'hasta' => $correlativo_hasta,
+            ]);
+
+            if ($response->successful()) {
+                $comprobantes = collect($response->json());
+            } else {
+                $comprobantes = collect();
+                session()->flash('error', 'No se pudieron obtener los comprobantes desde la API externa');
+                return;
+            }
+            // $comprobantes = FComprobanteSunat::with(['vendedor', 'tipo_doc', 'cliente.padron' => function ($query) {
+            //     $query->withTrashed();
+            // }, 'conductor', 'detalle.producto'])->where('sede_id', $serie->f_sede_id)->where('serie', $serie->serie)->whereBetween('correlativo', [$correlativo_desde, $correlativo_hasta])->get();
             //dd($comprobantes);
 
             $font = Printer::FONT_A;
@@ -133,7 +168,7 @@ class ImprimirComprobante extends Component
                     }
                     $printer->text(strtoupper(str_pad($detalle->codProducto, 5, "0", STR_PAD_LEFT) . " " . substr($detalle->descripcion, 0, 34)));
                     $printer->feed();
-                    $printer->text("CAJX" . str_pad($detalle->ref_producto_cantidad_cajon, 2, "0", STR_PAD_LEFT) . "    " . str_pad(number_format($detalle->ref_producto_cant_vendida, $this->calcular_digitos($detalle->ref_producto_cantidad_cajon),'.',''), 6, " ", STR_PAD_LEFT) . " " . str_pad(number_format($detalle->ref_producto_precio_cajon, 2), 10, " ", STR_PAD_LEFT) . " " . str_pad(number_format(($monto_valor + $detalle->totalImpuestos), 2), 12, " ", STR_PAD_LEFT));
+                    $printer->text("CAJX" . str_pad($detalle->ref_producto_cantidad_cajon, 2, "0", STR_PAD_LEFT) . "    " . str_pad(number_format($detalle->ref_producto_cant_vendida, $this->calcular_digitos($detalle->ref_producto_cantidad_cajon), '.', ''), 6, " ", STR_PAD_LEFT) . " " . str_pad(number_format($detalle->ref_producto_precio_cajon, 2), 10, " ", STR_PAD_LEFT) . " " . str_pad(number_format(($monto_valor + $detalle->totalImpuestos), 2), 12, " ", STR_PAD_LEFT));
                     $printer->feed();
                 }
                 $printer->text("**SON: " . strtoupper($formatter->toInvoice($comprobante->mtoImpVenta, 2, 'SOLES')));
