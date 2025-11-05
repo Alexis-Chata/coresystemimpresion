@@ -96,12 +96,37 @@ class ImprimirComprobante extends Component
             ]);
 
             if ($response->successful()) {
-                $comprobantes = collect($response->json());
+                $data = json_decode(json_encode($response->json()), false); // false = objetos stdClass
+                $comprobantes = collect($data)->map(function ($item) {
+                    // Convertir también los niveles anidados (detalle, cliente, vendedor, etc.)
+                    if (isset($item->detalle) && is_array($item->detalle)) {
+                        $item->detalle = collect($item->detalle)->map(function ($d) {
+                            return (object) $d;
+                        });
+                    }
+                    if (isset($item->cliente) && is_array($item->cliente)) {
+                        $item->cliente = (object) $item->cliente;
+                    }
+                    if (isset($item->cliente->padron) && is_array($item->cliente->padron)) {
+                        $item->cliente->padron = (object) $item->cliente->padron;
+                    }
+                    if (isset($item->vendedor) && is_array($item->vendedor)) {
+                        $item->vendedor = (object) $item->vendedor;
+                    }
+                    if (isset($item->conductor) && is_array($item->conductor)) {
+                        $item->conductor = (object) $item->conductor;
+                    }
+                    if (isset($item->tipo_doc) && is_array($item->tipo_doc)) {
+                        $item->tipo_doc = (object) $item->tipo_doc;
+                    }
+                    return (object) $item;
+                });
             } else {
                 $comprobantes = collect();
                 session()->flash('error', 'No se pudieron obtener los comprobantes desde la API externa');
                 return;
             }
+
             // $comprobantes = FComprobanteSunat::with(['vendedor', 'tipo_doc', 'cliente.padron' => function ($query) {
             //     $query->withTrashed();
             // }, 'conductor', 'detalle.producto'])->where('sede_id', $serie->f_sede_id)->where('serie', $serie->serie)->whereBetween('correlativo', [$correlativo_desde, $correlativo_hasta])->get();
