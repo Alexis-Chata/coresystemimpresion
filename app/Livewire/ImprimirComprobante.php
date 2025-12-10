@@ -88,6 +88,11 @@ class ImprimirComprobante extends Component
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . env('API_TOKEN'),
                 'Accept' => 'application/json',
+            ])
+            ->timeout(60) // aumenta el límite
+            ->connectTimeout(20) // evita que quede colgado
+            ->withOptions([
+                'verify' => false, // SOLO en local
             ])->get(env('API_URL') . '/api/comprobantes', [
                 'sede_id' => $serie->f_sede_id,
                 'serie' => $serie->serie,
