@@ -25,10 +25,10 @@ class ImprimirComprobante extends Component
     {
         $sede_id = auth_user()->f_sede_id;
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Bearer ' . env('API_TOKEN'),
             'Accept' => 'application/json',
-        ])->get(env('API_URL') . '/api/series', [
+        ])->timeout(15)->get(env('API_URL') . '/api/series', [
             'sede_id' => $sede_id,
             'tipos'   => '1,2,3'
         ]);
