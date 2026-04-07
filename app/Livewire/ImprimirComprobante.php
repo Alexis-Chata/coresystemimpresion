@@ -25,13 +25,19 @@ class ImprimirComprobante extends Component
     {
         $sede_id = auth_user()->f_sede_id;
 
-        $response = Http::withoutVerifying()->withHeaders([
-            'Authorization' => 'Bearer ' . env('API_TOKEN'),
-            'Accept' => 'application/json',
-        ])->timeout(15)->get(env('API_URL') . '/api/series', [
-            'sede_id' => $sede_id,
-            'tipos'   => '1,2,3'
-        ]);
+        $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . config('services.core_api.token'),
+                'Accept' => 'application/json',
+            ])
+            ->connectTimeout(30) // Tiempo para establecer conexión
+            ->timeout(30)        // Tiempo para recibir toda la respuesta
+            ->withOptions([
+                'verify' => false, // SOLO en local
+            ])
+            ->get(config('services.core_api.url') . '/api/series', [
+                'sede_id' => $sede_id,
+                'tipos'   => '1,2,3'
+            ]);
 
         if ($response->successful()) {
             $this->series = collect($response->json())->keyBy('id')->toArray();
@@ -86,19 +92,19 @@ class ImprimirComprobante extends Component
             $correlativo_hasta = (int)$serie->correlativo_hasta;
 
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . env('API_TOKEN'),
-                'Accept' => 'application/json',
-            ])
-            ->timeout(60) // aumenta el límite
-            ->connectTimeout(20) // evita que quede colgado
-            ->withOptions([
-                'verify' => false, // SOLO en local
-            ])->get(env('API_URL') . '/api/comprobantes', [
-                'sede_id' => $serie->f_sede_id,
-                'serie' => $serie->serie,
-                'desde' => $correlativo_desde,
-                'hasta' => $correlativo_hasta,
-            ]);
+                    'Authorization' => 'Bearer ' . config('services.core_api.token'),
+                    'Accept' => 'application/json',
+                ])
+                ->connectTimeout(30) // evita que quede colgado // Tiempo para establecer conexión
+                ->timeout(60) // aumenta el límite // Tiempo para recibir toda la respuesta
+                ->withOptions([
+                    'verify' => false, // SOLO en local
+                ])->get(config('services.core_api.url') . '/api/comprobantes', [
+                    'sede_id' => $serie->f_sede_id,
+                    'serie' => $serie->serie,
+                    'desde' => $correlativo_desde,
+                    'hasta' => $correlativo_hasta,
+                ]);
 
             if ($response->successful()) {
                 $data = json_decode(json_encode($response->json()), false); // false = objetos stdClass
