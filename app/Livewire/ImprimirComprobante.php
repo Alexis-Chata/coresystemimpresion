@@ -2,14 +2,15 @@
 
 namespace App\Livewire;
 
-use App\Models\FComprobanteSunat;
-use App\Models\FSerie;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Http;
 use Livewire\Component;
-use Luecano\NumeroALetras\NumeroALetras;
-use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
 use Mike42\Escpos\Printer;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Luecano\NumeroALetras\NumeroALetras;
+use Illuminate\Http\Client\ConnectionException;
+use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
 
 class ImprimirComprobante extends Component
 {
@@ -18,35 +19,53 @@ class ImprimirComprobante extends Component
         return view('livewire.imprimir-comprobante');
     }
 
-    public $series;
+    public $series = [];
     public $impresoras = [];
+    public $readyToLoad = false; // Bandera para carga asíncrona
 
     public function mount()
     {
-        $sede_id = auth_user()->f_sede_id;
+        $this->impresoras = ['POS-80C-1', 'POS-80C-2', 'EPSON-TM-U220-Receipt'];
+    }
 
-        $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . config('services.core_api.token'),
-                'Accept' => 'application/json',
-            ])
-            ->connectTimeout(30) // Tiempo para establecer conexión
-            ->timeout(30)        // Tiempo para recibir toda la respuesta
-            ->withOptions([
-                'verify' => false, // SOLO en local
-            ])
-            ->get(config('services.core_api.url') . '/api/series', [
-                'sede_id' => $sede_id,
-                'tipos'   => '1,2,3'
-            ]);
+    /**
+     * Este método se ejecuta automáticamente desde la vista cuando está lista.
+     * Evita que la pantalla se congele al entrar a la página.
+     */
+    public function loadSeries()
+    {
+        $sede_id = auth_user()->f_sede_id ?? null;
 
-        if ($response->successful()) {
-            $this->series = collect($response->json())->keyBy('id')->toArray();
-        } else {
-            $this->series = [];
-            session()->flash('error', 'No se pudo obtener las series desde la API externa');
+        // Cacheamos las series por 5 minutos para evitar golpear la API en cada F5
+        $this->series = Cache::remember("series_sede_{$sede_id}", now()->addMinutes(5), function () use ($sede_id) {
+            try {
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . config('services.core_api.token'),
+                    'Accept' => 'application/json',
+                ])
+                    ->connectTimeout(5) // Tiempo corto para no hacer esperar al usuario
+                    ->timeout(10)
+                    ->withOptions(['verify' => false]) // SOLO en local
+                    ->get(config('services.core_api.url') . '/api/series', [
+                        'sede_id' => $sede_id,
+                        'tipos'   => '1,2,3'
+                    ]);
+
+                if ($response->successful()) {
+                    return collect($response->json())->keyBy('id')->toArray();
+                }
+            } catch (ConnectionException $e) {
+                Log::error("Timeout obteniendo series: " . $e->getMessage());
+            }
+
+            return [];
+        });
+
+        if (empty($this->series)) {
+            session()->flash('error', 'No se pudieron cargar las series. La API externa no responde.');
         }
 
-        $this->impresoras = ['POS-80C-1', 'POS-80C-2', 'EPSON-TM-U220-Receipt'];
+        $this->readyToLoad = true;
     }
 
     public function calcular_digitos($factor): int
@@ -65,130 +84,103 @@ class ImprimirComprobante extends Component
 
     public function imprimir($id)
     {
+        // Limpiar errores previos acumulados en el estado de Livewire
+        $this->resetValidation();
+
         // Verificar que el ID exista
         if (!isset($this->series[$id])) {
             $this->addError("series.$id", 'No se encontró la serie seleccionada.');
             return;
         }
 
-        $serie = $this->series[$id];
+        $serie = (object) $this->series[$id];
 
-        // Validar datos requeridos
-        if (empty($serie['correlativo_desde']) || empty($serie['correlativo_hasta']) || empty($serie['impresora'])) {
+        if (empty($serie->correlativo_desde) || empty($serie->correlativo_hasta) || empty($serie->impresora)) {
             $this->addError("series.$id", 'Todos los campos deben estar completos.');
             return;
         }
 
-        if ($serie['correlativo_desde'] > $serie['correlativo_hasta']) {
-            $this->addError("series.$id.correlativo_hasta", 'El correlativo hasta debe ser mayor o igual que el correlativo desde.');
+        if ($serie->correlativo_desde > $serie->correlativo_hasta) {
+            $this->addError("series.$id.correlativo_hasta", 'El correlativo "hasta" debe ser mayor o igual.');
             return;
         }
 
-        $serie = (object) $serie;
+        $printer = null;
 
         try {
-            $nombre_impresora_compartida = "POS-80C-1";
-            $correlativo_desde = (int)$serie->correlativo_desde;
-            $correlativo_hasta = (int)$serie->correlativo_hasta;
-
+            // 1. Petición HTTP optimizada (Directamente convertida a Objeto mediante json(null))
             $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . config('services.core_api.token'),
-                    'Accept' => 'application/json',
-                ])
-                ->connectTimeout(30) // evita que quede colgado // Tiempo para establecer conexión
-                ->timeout(60) // aumenta el límite // Tiempo para recibir toda la respuesta
-                ->withOptions([
-                    'verify' => false, // SOLO en local
-                ])->get(config('services.core_api.url') . '/api/comprobantes', [
+                'Authorization' => 'Bearer ' . config('services.core_api.token'),
+                'Accept' => 'application/json',
+            ])
+                ->connectTimeout(10)
+                ->timeout(45) // Límite prudente para descarga de lotes
+                ->withOptions(['verify' => false]) // SOLO en local
+                ->get(config('services.core_api.url') . '/api/comprobantes', [
                     'sede_id' => $serie->f_sede_id,
-                    'serie' => $serie->serie,
-                    'desde' => $correlativo_desde,
-                    'hasta' => $correlativo_hasta,
+                    'serie'   => $serie->serie,
+                    'desde'   => (int) $serie->correlativo_desde,
+                    'hasta'   => (int) $serie->correlativo_hasta,
                 ]);
 
-            if ($response->successful()) {
-                $data = json_decode(json_encode($response->json()), false); // false = objetos stdClass
-                $comprobantes = collect($data)->map(function ($item) {
-                    // Convertir también los niveles anidados (detalle, cliente, vendedor, etc.)
-                    if (isset($item->detalle) && is_array($item->detalle)) {
-                        $item->detalle = collect($item->detalle)->map(function ($d) {
-                            return (object) $d;
-                        });
-                    }
-                    if (isset($item->cliente) && is_array($item->cliente)) {
-                        $item->cliente = (object) $item->cliente;
-                    }
-                    if (isset($item->cliente->padron) && is_array($item->cliente->padron)) {
-                        $item->cliente->padron = (object) $item->cliente->padron;
-                    }
-                    if (isset($item->vendedor) && is_array($item->vendedor)) {
-                        $item->vendedor = (object) $item->vendedor;
-                    }
-                    if (isset($item->conductor) && is_array($item->conductor)) {
-                        $item->conductor = (object) $item->conductor;
-                    }
-                    if (isset($item->tipo_doc) && is_array($item->tipo_doc)) {
-                        $item->tipo_doc = (object) $item->tipo_doc;
-                    }
-                    return (object) $item;
-                });
-            } else {
-                $comprobantes = collect();
-                session()->flash('error', 'No se pudieron obtener los comprobantes desde la API externa');
+            if (!$response->successful()) {
+                throw new \Exception('La API externa de comprobantes no respondió correctamente.');
+            }
+
+            // Transformamos la respuesta directamente a objetos estándar de PHP
+            $comprobantes = $response->object();
+
+            if (empty($comprobantes)) {
+                session()->flash('error', 'No se encontraron comprobantes en el rango seleccionado.');
                 return;
             }
 
-            // $comprobantes = FComprobanteSunat::with(['vendedor', 'tipo_doc', 'cliente.padron' => function ($query) {
-            //     $query->withTrashed();
-            // }, 'conductor', 'detalle.producto'])->where('sede_id', $serie->f_sede_id)->where('serie', $serie->serie)->whereBetween('correlativo', [$correlativo_desde, $correlativo_hasta])->get();
-            //dd($comprobantes);
-
-            $font = Printer::FONT_A;
-            if ($serie->impresora == 'EPSON-TM-U220-Receipt') {
-                $font = Printer::FONT_B;
-            }
+            // 2. Configuración de la Impresora Térmica
+            $font = ($serie->impresora === 'EPSON-TM-U220-Receipt') ? Printer::FONT_B : Printer::FONT_A;
             $connector = new WindowsPrintConnector($serie->impresora);
             $printer = new Printer($connector);
-            foreach ($comprobantes as $comprobante) {
+            $formatter = new NumeroALetras();
 
-                $formatter = new NumeroALetras();
-                //dd($comprobante->detalle);
+            // 3. Bucle de Impresión
+            foreach ($comprobantes as $comprobante) {
                 $printer->setJustification(Printer::JUSTIFY_CENTER);
                 $printer->setTextSize(1, 1);
                 // $printer->setLineSpacing(65);
                 $printer->setFont($font);
-                if ($comprobante->tipoDoc === "00") {
+
+                if (($comprobante->tipoDoc ?? '') === "00") {
                     $printer->feed();
                 } else {
-                    $printer->text(strtoupper($comprobante->companyRazonSocial));
+                    $printer->text(strtoupper($comprobante->companyRazonSocial ?? ''));
                     $printer->feed();
-                    $printer->text("RUC: " . $comprobante->companyRuc);
+                    $printer->text("RUC: " . ($comprobante->companyRuc ?? ''));
                     $printer->feed();
-                    $printer->text(strtoupper("PUNTO PARTIDA: " . $comprobante->companyAddressDireccion));
+                    $printer->text(strtoupper("PUNTO PARTIDA: " . ($comprobante->companyAddressDireccion ?? '')));
                 }
                 $printer->feed();
                 $printer->setJustification(Printer::JUSTIFY_LEFT);
                 $printer->feed();
                 $printer->text("FECHA : " . (Carbon::parse($comprobante->fechaEmision)->format('d-m-Y')));
                 $printer->feed();
-                $printer->text(strtoupper($comprobante->tipoDoc_name . " " . $comprobante->serie . "-" . str_pad($comprobante->correlativo, 8, "0", STR_PAD_LEFT)));
+                $printer->text(strtoupper(($comprobante->tipoDoc_name ?? '') . " " . ($comprobante->serie ?? '') . "-" . str_pad($comprobante->correlativo ?? 0, 8, "0", STR_PAD_LEFT)));
                 $printer->feed();
                 $printer->text("--------------------------------");
                 $printer->feed();
-                $printer->text(strtoupper("COD.CLTE: " . str_pad($comprobante->cliente_id, 8, "0", STR_PAD_LEFT) . " " . $comprobante->tipo_doc->tipo_documento . ": " . $comprobante->clientNumDoc));
+                $printer->text(strtoupper("COD.CLTE: " . str_pad($comprobante->cliente_id ?? 0, 8, "0", STR_PAD_LEFT) . " " . ($comprobante->tipo_doc->tipo_documento ?? 'DOC') . ": " . ($comprobante->clientNumDoc ?? '')));
                 $printer->feed();
                 $printer->text("NOMBRE Y APELLIDOS:");
                 $printer->feed();
-                $printer->text(strtoupper($comprobante->clientRazonSocial));
+                $printer->text(strtoupper($comprobante->clientRazonSocial ?? ''));
                 $printer->feed();
                 $printer->text("DOMICILIO DE ENTREGA:");
                 $printer->feed();
-                $printer->text(strtoupper($comprobante->clientDireccion));
+                $printer->text(strtoupper($comprobante->clientDireccion ?? ''));
                 $printer->feed();
-                $printer->text(strtoupper("VENDEDOR: " . str_pad($comprobante->vendedor_id, 3, "0", STR_PAD_LEFT) . " " . $comprobante->vendedor->name));
+                $printer->text(strtoupper("VENDEDOR: " . str_pad($comprobante->vendedor_id ?? 0, 3, "0", STR_PAD_LEFT) . " " . ($comprobante->vendedor->name ?? '')));
                 $printer->feed();
-                logger("imprimir-info", [$comprobante->cliente->id]);
-                $printer->text("RUTA: " . str_pad($comprobante->ruta_id, 4, "0", STR_PAD_LEFT) . "  SEC.: " . str_pad($comprobante->cliente->padron->nro_secuencia, 5, "0", STR_PAD_LEFT));
+
+                $nro_secuencia = $comprobante->cliente->padron->nro_secuencia ?? 0;
+                $printer->text("RUTA: " . str_pad($comprobante->ruta_id ?? 0, 4, "0", STR_PAD_LEFT) . "  SEC.: " . str_pad($nro_secuencia, 5, "0", STR_PAD_LEFT));
                 $printer->feed();
                 $printer->text("FORMA DE PAGO : CONTADO");
                 $printer->feed();
@@ -197,36 +189,46 @@ class ImprimirComprobante extends Component
                 $printer->text("---------------------------------------");
                 $printer->feed();
                 $printer->feed();
-                foreach ($comprobante->detalle as $detalle) {
-                    $monto_valor = $detalle->mtoValorVenta;
-                    if ($detalle->tipAfeIgv == 21) {
-                        $monto_valor = $detalle->mtoValorUnitario;
+                $detalles = $comprobante->detalle ?? [];
+                foreach ($detalles as $detalle) {
+                    $monto_valor = $detalle->mtoValorVenta ?? 0;
+                    if (($detalle->tipAfeIgv ?? 0) == 21) {
+                        $monto_valor = $detalle->mtoValorUnitario ?? 0;
                     }
-                    $printer->text(strtoupper(str_pad($detalle->codProducto, 5, "0", STR_PAD_LEFT) . " " . substr($detalle->descripcion, 0, 34)));
+                    $printer->text(strtoupper(str_pad($detalle->codProducto ?? 0, 5, "0", STR_PAD_LEFT) . " " . substr($detalle->descripcion ?? '', 0, 34)));
                     $printer->feed();
-                    $printer->text("CAJX" . str_pad($detalle->ref_producto_cantidad_cajon, 2, "0", STR_PAD_LEFT) . "    " . str_pad(number_format($detalle->ref_producto_cant_vendida, $this->calcular_digitos($detalle->ref_producto_cantidad_cajon), '.', ''), 6, " ", STR_PAD_LEFT) . " " . str_pad(number_format($detalle->ref_producto_precio_cajon, 2), 10, " ", STR_PAD_LEFT) . " " . str_pad(number_format(($monto_valor + $detalle->totalImpuestos), 2), 12, " ", STR_PAD_LEFT));
+
+                    $cant_cajon = $detalle->ref_producto_cantidad_cajon ?? 1;
+                    $cant_vendida = $detalle->ref_producto_cant_vendida ?? 0;
+                    $precio_cajon = $detalle->ref_producto_precio_cajon ?? 0;
+                    $total_impuesto = $detalle->totalImpuestos ?? 0;
+
+                    $printer->text("CAJX" . str_pad($cant_cajon, 2, "0", STR_PAD_LEFT) . "    " . str_pad(number_format($cant_vendida, $this->calcular_digitos($cant_cajon), '.', ''), 6, " ", STR_PAD_LEFT) . " " . str_pad(number_format($precio_cajon, 2), 10, " ", STR_PAD_LEFT) . " " . str_pad(number_format(($monto_valor + $total_impuesto), 2), 12, " ", STR_PAD_LEFT));
                     $printer->feed();
                 }
-                $printer->text("**SON: " . strtoupper($formatter->toInvoice($comprobante->mtoImpVenta, 2, 'SOLES')));
+
+                $printer->text("**SON: " . strtoupper($formatter->toInvoice($comprobante->mtoImpVenta ?? 0, 2, 'SOLES')));
                 $printer->feed();
                 $printer->text("---------------------------------------");
                 $printer->feed();
-                $printer->text("NUMERO DE ITEMS = " . $comprobante->detalle->count());
+                $printer->text("NUMERO DE ITEMS = " . count($detalles));
                 $printer->feed();
-                $printer->text(str_pad("IMPORTE BRUTO: ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->subTotal, 2), 12, " ", STR_PAD_LEFT));
+                $printer->text(str_pad("IMPORTE BRUTO: ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->subTotal ?? 0, 2), 12, " ", STR_PAD_LEFT));
                 $printer->feed();
                 $printer->text(str_pad("DESCUENTOS : ", 15, " ", STR_PAD_RIGHT) . str_pad("0.00", 12, " ", STR_PAD_LEFT));
                 $printer->feed();
-                if ($comprobante->tipoDoc === "01") {
-                    $printer->text(str_pad("IMPORTE NETO : ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->valorVenta, 2), 12, " ", STR_PAD_LEFT));
+
+                if (($comprobante->tipoDoc ?? '') === "01") {
+                    $printer->text(str_pad("IMPORTE NETO : ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->valorVenta ?? 0, 2), 12, " ", STR_PAD_LEFT));
                     $printer->feed();
-                    $printer->text(str_pad("IMPORTE IGV : ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->totalImpuestos, 2), 12, " ", STR_PAD_LEFT));
+                    $printer->text(str_pad("IMPORTE IGV : ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->totalImpuestos ?? 0, 2), 12, " ", STR_PAD_LEFT));
                     $printer->feed();
                 }
-                $printer->text(str_pad("IMPORTE TOTAL: ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->mtoImpVenta, 2), 12, " ", STR_PAD_LEFT));
+
+                $printer->text(str_pad("IMPORTE TOTAL: ", 15, " ", STR_PAD_RIGHT) . str_pad(number_format($comprobante->mtoImpVenta ?? 0, 2), 12, " ", STR_PAD_LEFT));
                 $printer->feed();
                 $printer->feed();
-                $printer->text(strtoupper("CHOFER: " . str_pad($comprobante->conductor_id, 3, "0", STR_PAD_LEFT) . " " . $comprobante->conductor->name));
+                $printer->text(strtoupper("CHOFER: " . str_pad($comprobante->conductor_id ?? 0, 3, "0", STR_PAD_LEFT) . " " . ($comprobante->conductor->name ?? '')));
                 $printer->feed();
                 $printer->feed();
                 $printer->text("REPRESENTACION IMPRESA DE BOLETA ELECTRONICA");
@@ -256,11 +258,13 @@ class ImprimirComprobante extends Component
             */
             $printer->close();
             session()->forget('error');
+            session()->flash('message', '¡Impresión completada con éxito!');
         } catch (\Exception $e) {
             // Manejo de errores
-            if (isset($printer)) {
+            if ($printer) {
                 $printer->close();
             }
+            Log::error("Error en el proceso de impresión: " . $e->getMessage());
             session()->flash('error', 'Error al imprimir: ' . $e->getMessage());
         }
     }
