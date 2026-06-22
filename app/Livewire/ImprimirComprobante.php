@@ -37,7 +37,7 @@ class ImprimirComprobante extends Component
         $sede_id = auth_user()->f_sede_id ?? null;
 
         // Cacheamos las series por 5 minutos para evitar golpear la API en cada F5
-        $this->series = Cache::remember("series_sede_{$sede_id}", now()->addMinutes(5), function () use ($sede_id) {
+        $this->series = Cache::remember("series_sede_{$sede_id}", now()->addMinutes(3), function () use ($sede_id) {
             try {
                 $response = Http::withHeaders([
                     'Authorization' => 'Bearer ' . config('services.core_api.token'),
