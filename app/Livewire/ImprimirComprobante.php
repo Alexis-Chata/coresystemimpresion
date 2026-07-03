@@ -36,8 +36,10 @@ class ImprimirComprobante extends Component
     {
         $sede_id = auth_user()->f_sede_id ?? null;
 
-        // Cacheamos las series por 5 minutos para evitar golpear la API en cada F5
-        $this->series = Cache::remember("series_sede_{$sede_id}", now()->addMinutes(3), function () use ($sede_id) {
+        $cacheKey = "series_sede_{$sede_id}";
+        $this->series = Cache::get($cacheKey);
+
+        if ($this->series === null) {
             try {
                 $response = Http::withHeaders([
                     'Authorization' => 'Bearer ' . config('services.core_api.token'),
@@ -52,14 +54,17 @@ class ImprimirComprobante extends Component
                     ]);
 
                 if ($response->successful()) {
-                    return collect($response->json())->keyBy('id')->toArray();
+                    $this->series = collect($response->json())->keyBy('id')->toArray();
+                    // Guardamos en caché solo si la petición a la API fue exitosa
+                    Cache::put($cacheKey, $this->series, now()->addMinutes(5));
+                } else {
+                    $this->series = [];
                 }
             } catch (ConnectionException $e) {
                 Log::error("Timeout obteniendo series: " . $e->getMessage());
+                $this->series = [];
             }
-
-            return [];
-        });
+        }
 
         if (empty($this->series)) {
             session()->flash('error', 'No se pudieron cargar las series. La API externa no responde.');
