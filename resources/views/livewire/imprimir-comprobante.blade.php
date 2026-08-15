@@ -48,7 +48,7 @@
 
                         <td class="px-4 py-3 bg-transparent group-hover:bg-gray-50/70 dark:group-hover:bg-white/[0.02]">
                             <div class="flex rounded-lg shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-white/10 focus-within:ring-2 focus-within:ring-primary-600 dark:focus-within:ring-primary-500 bg-white dark:bg-gray-800">
-                                <input type="number" wire:model.blur="series.{{ $id }}.correlativo_desde" class="w-full border-0 bg-transparent py-1.5 px-3 text-sm text-gray-900 dark:text-white focus:ring-0 placeholder:text-gray-400" placeholder="-----" required>
+                                <input type="number" wire:model="series.{{ $id }}.correlativo_desde" wire:keydown.enter.prevent="imprimir({{ $id }})" class="w-full border-0 bg-transparent py-1.5 px-3 text-sm text-gray-900 dark:text-white focus:ring-0 placeholder:text-gray-400" placeholder="-----" required>
                             </div>
                             @error("series.$id.correlativo_desde")
                             <div class="text-danger-600 dark:text-danger-400 text-xs mt-1">{{ $message }}</div>
@@ -57,7 +57,7 @@
 
                         <td class="px-4 py-3 bg-transparent group-hover:bg-gray-50/70 dark:group-hover:bg-white/[0.02]">
                             <div class="flex rounded-lg shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-white/10 focus-within:ring-2 focus-within:ring-primary-600 dark:focus-within:ring-primary-500 bg-white dark:bg-gray-800">
-                                <input type="number" wire:model.blur="series.{{ $id }}.correlativo_hasta" class="w-full border-0 bg-transparent py-1.5 px-3 text-sm text-gray-900 dark:text-white focus:ring-0 placeholder:text-gray-400" placeholder="-----" required>
+                                <input type="number" wire:model="series.{{ $id }}.correlativo_hasta" wire:keydown.enter.prevent="imprimir({{ $id }})" class="w-full border-0 bg-transparent py-1.5 px-3 text-sm text-gray-900 dark:text-white focus:ring-0 placeholder:text-gray-400" placeholder="-----" required>
                             </div>
                             @error("series.$id.correlativo_hasta")
                             <div class="text-danger-600 dark:text-danger-400 text-xs mt-1">{{ $message }}</div>
@@ -66,7 +66,7 @@
 
                         <td class="px-4 py-3 bg-transparent group-hover:bg-gray-50/70 dark:group-hover:bg-white/[0.02]">
                             <div class="flex rounded-lg shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-white/10 focus-within:ring-2 focus-within:ring-primary-600 dark:focus-within:ring-primary-500 bg-white dark:bg-gray-800">
-                                <select wire:model.blur="series.{{ $id }}.impresora" class="w-full border-0 bg-transparent py-1.5 ps-3 pe-8 text-sm text-gray-900 dark:text-white focus:ring-0" required>
+                                <select wire:model="series.{{ $id }}.impresora" wire:keydown.enter.prevent="imprimir({{ $id }})" class="w-full border-0 bg-transparent py-1.5 ps-3 pe-8 text-sm text-gray-900 dark:text-white focus:ring-0" required>
                                     <option value="" class="dark:bg-gray-900">Seleccione impresora</option>
                                     @foreach ($impresoras as $impresora)
                                     <option value="{{ $impresora }}" class="dark:bg-gray-900">{{ $impresora }}</option>
