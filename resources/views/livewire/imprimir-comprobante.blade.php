@@ -1,5 +1,20 @@
 <div wire:init="loadSeries" class="space-y-6">
 
+    <!-- Indicador de conexión a internet en tiempo real en el navegador -->
+    <div x-data="{ online: navigator.onLine }"
+         x-init="
+            window.addEventListener('online', () => online = true);
+            window.addEventListener('offline', () => online = false);
+         "
+         x-show="!online"
+         x-cloak
+         class="p-4 text-sm text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-2">
+        <svg class="w-5 h-5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.58 9M1.42 9a15.91 15.91 0 0 1 4.7-3.16M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"></path>
+        </svg>
+        <span><strong>⚠️ Sin conexión a internet:</strong> Se ha detectado una caída en la conexión a la red local/internet. Revisa tu conexión.</span>
+    </div>
+
     @if (session()->has('error'))
     <div class="p-4 text-sm text-danger-600 bg-danger-500/10 border border-danger-500/20 rounded-xl">
         <strong>⚠️ Error:</strong> {{ session('error') }}

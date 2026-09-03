@@ -61,12 +61,16 @@ class ImprimirComprobante extends Component
                     $this->series = [];
                 }
             } catch (ConnectionException $e) {
-                Log::error("Timeout obteniendo series: " . $e->getMessage());
+                Log::error("Error de conexión/sin internet al obtener series: " . $e->getMessage());
+                $this->series = [];
+                session()->flash('error', 'Sin conexión a internet o el servidor API no está disponible. Verifique su red.');
+            } catch (\Exception $e) {
+                Log::error("Error general obteniendo series: " . $e->getMessage());
                 $this->series = [];
             }
         }
 
-        if (empty($this->series)) {
+        if (empty($this->series) && !session()->has('error')) {
             session()->flash('error', 'No se pudieron cargar las series. La API externa no responde.');
         }
 
