@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Luecano\NumeroALetras\NumeroALetras;
 use Illuminate\Http\Client\ConnectionException;
+use App\Models\Impresora;
 use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
 
 class ImprimirComprobante extends Component
@@ -23,9 +24,73 @@ class ImprimirComprobante extends Component
     public $impresoras = [];
     public $readyToLoad = false; // Bandera para carga asíncrona
 
+    public $mostrarModalImpresora = false;
+    public $nuevaImpresoraNombre = '';
+    public $nuevaImpresoraDescripcion = '';
+
     public function mount()
     {
-        $this->impresoras = ['POS-80C-1', 'POS-80C-2', 'EPSON-TM-U220-Receipt'];
+        $this->cargarImpresoras();
+    }
+
+    public function cargarImpresoras()
+    {
+        $sede_id = auth_user()->f_sede_id ?? null;
+        $this->impresoras = Impresora::query()
+            ->where('activo', true)
+            ->when($sede_id, function ($q) use ($sede_id) {
+                $q->where(function ($sub) use ($sede_id) {
+                    $sub->whereNull('sede_id')->orWhere('sede_id', $sede_id);
+                });
+            })
+            ->pluck('nombre')
+            ->toArray();
+    }
+
+    public function abrirModalImpresora()
+    {
+        $this->resetValidation();
+        $this->nuevaImpresoraNombre = '';
+        $this->nuevaImpresoraDescripcion = '';
+        $this->mostrarModalImpresora = true;
+    }
+
+    public function cerrarModalImpresora()
+    {
+        $this->mostrarModalImpresora = false;
+    }
+
+    public function agregarImpresora()
+    {
+        $this->validate([
+            'nuevaImpresoraNombre' => 'required|string|max:255',
+        ], [
+            'nuevaImpresoraNombre.required' => 'El nombre de la impresora es obligatorio.',
+        ]);
+
+        $sede_id = auth_user()->f_sede_id ?? null;
+
+        Impresora::firstOrCreate([
+            'nombre' => trim($this->nuevaImpresoraNombre),
+        ], [
+            'descripcion' => $this->nuevaImpresoraDescripcion,
+            'sede_id' => $sede_id,
+            'activo' => true,
+        ]);
+
+        $this->nuevaImpresoraNombre = '';
+        $this->nuevaImpresoraDescripcion = '';
+        $this->mostrarModalImpresora = false;
+        $this->cargarImpresoras();
+
+        session()->flash('message', 'Impresora agregada correctamente.');
+    }
+
+    public function eliminarImpresora($nombre)
+    {
+        Impresora::where('nombre', $nombre)->delete();
+        $this->cargarImpresoras();
+        session()->flash('message', 'Impresora eliminada correctamente.');
     }
 
     /**

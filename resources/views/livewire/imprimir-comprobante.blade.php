@@ -27,6 +27,12 @@
     </div>
     @endif
 
+    <div class="flex justify-end">
+        <x-filament::button type="button" icon="heroicon-m-plus" color="gray" size="sm" wire:click="abrirModalImpresora">
+            Gestionar Impresoras
+        </x-filament::button>
+    </div>
+
     @if(!$readyToLoad)
     <div class="flex flex-col items-center justify-center p-12 space-y-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm">
         <svg class="w-8 h-8 text-gray-400 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -120,6 +126,65 @@
                     @endforelse
                 </tbody>
             </table>
+        </div>
+    </div>
+    @endif
+
+    <!-- Modal para Agregar/Gestionar Impresoras -->
+    @if($mostrarModalImpresora)
+    <div class="fixed inset-0 z-50 overflow-y-auto bg-gray-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 border border-gray-200 dark:border-gray-800">
+            <div class="flex justify-between items-center pb-2 border-b border-gray-200 dark:border-gray-800">
+                <h3 class="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <x-heroicon-m-printer class="w-5 h-5 text-primary-500" />
+                    Gestionar Impresoras
+                </h3>
+                <button wire:click="cerrarModalImpresora" type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Formulario para agregar -->
+            <form wire:submit.prevent="agregarImpresora" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Nombre de la Impresora (Windows / Red)</label>
+                    <input type="text" wire:model="nuevaImpresoraNombre" placeholder="Ej: POS-80C-3" class="w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:ring-primary-500 focus:border-primary-500">
+                    @error('nuevaImpresoraNombre')
+                        <span class="text-xs text-danger-500">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Descripción / Ubicación (Opcional)</label>
+                    <input type="text" wire:model="nuevaImpresoraDescripcion" placeholder="Ej: Caja Principal" class="w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:ring-primary-500 focus:border-primary-500">
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <x-filament::button type="button" color="gray" size="sm" wire:click="cerrarModalImpresora">
+                        Cancelar
+                    </x-filament::button>
+                    <x-filament::button type="submit" color="primary" size="sm">
+                        Guardar Impresora
+                    </x-filament::button>
+                </div>
+            </form>
+
+            <!-- Lista de impresoras registradas -->
+            <div class="pt-3 border-t border-gray-200 dark:border-gray-800">
+                <h4 class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Impresoras Registradas</h4>
+                <div class="max-h-40 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
+                    @forelse($impresoras as $imp)
+                    <div class="flex justify-between items-center py-2 text-sm text-gray-800 dark:text-gray-200">
+                        <span class="font-mono font-medium">{{ $imp }}</span>
+                        <button type="button" wire:click="eliminarImpresora('{{ $imp }}')" wire:confirm="¿Seguro que deseas eliminar esta impresora?" class="text-xs text-danger-500 hover:text-danger-700 font-medium">
+                            Eliminar
+                        </button>
+                    </div>
+                    @empty
+                    <p class="text-xs text-gray-400 py-2">No hay impresoras registradas.</p>
+                    @endforelse
+                </div>
+            </div>
         </div>
     </div>
     @endif
